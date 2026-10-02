@@ -47,7 +47,6 @@ exports.createProfilePost = async (req, res, next) => {
         folder: 'ca-connect/profile-posts',
         resource_type: 'image',
         allowed_formats: ['jpg', 'png', 'webp'],
-        transformation: [{ width: 1920, height: 1920, crop: 'limit', quality: 'auto:good' }],
       });
       imageUrl = result.secure_url;
       imagePublicId = result.public_id;

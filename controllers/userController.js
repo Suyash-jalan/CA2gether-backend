@@ -76,7 +76,6 @@ exports.uploadPhotos = async (req, res, next) => {
           folder: 'ca-connect/photos',
           resource_type: 'image',
           allowed_formats: ['jpg', 'png', 'webp'],
-          transformation: [{ width: 1600, height: 1600, crop: 'limit', quality: 'auto:good' }],
         });
         urls.push(result.secure_url);
         // Remove temp local file
