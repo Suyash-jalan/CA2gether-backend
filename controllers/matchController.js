@@ -4,6 +4,12 @@ const Match = require('../models/Match');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
 
+const DATING_GENDER_FILTERS = {
+  Male: ['Female'],
+  Female: ['Male'],
+  'Non-binary': ['Non-binary', 'Female'],
+};
+
 // ── SWIPE (like / pass) ─────────────────────────────────────────────
 exports.swipe = async (req, res, next) => {
   try {
@@ -26,6 +32,11 @@ exports.swipe = async (req, res, next) => {
     }
 
     const swipeMode = mode || 'dating';
+
+    const allowedDatingGenders = DATING_GENDER_FILTERS[req.user.gender];
+    if (swipeMode === 'dating' && allowedDatingGenders && !allowedDatingGenders.includes(target.gender)) {
+      return res.status(400).json({ success: false, message: 'This profile is not available in dating mode' });
+    }
 
     // Upsert the swipe (in case they re-swipe)
     await Swipe.findOneAndUpdate(
@@ -154,15 +165,19 @@ exports.discover = async (req, res, next) => {
     const limitNum = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 50);
     const skip = (pageNum - 1) * limitNum;
 
-    // Get IDs the user has already swiped on
-    const swipedDocs = await Swipe.find({ swiper: userId, mode: examBuddyMode === 'true' ? 'exam_buddy' : 'dating' }).select('swiped').lean();
-    const alreadySwiped = swipedDocs.map((s) => s.swiped);
+    const isExamBuddyMode = examBuddyMode === 'true';
+
+    // Fetch only the IDs needed by the exclusion filter.
+    const alreadySwiped = await Swipe.distinct('swiped', {
+      swiper: userId,
+      mode: isExamBuddyMode ? 'exam_buddy' : 'dating',
+    });
 
     // Build exclusion list
     const excludeIds = [
       userId,
       ...(req.blockedUserIds || []),
-      ...alreadySwiped.map((id) => id.toString()),
+      ...alreadySwiped,
     ];
 
     // Build filter
@@ -173,8 +188,11 @@ exports.discover = async (req, res, next) => {
     };
 
     // Exam Buddy mode filter
-    if (examBuddyMode === 'true') {
+    if (isExamBuddyMode) {
       filter.examBuddyMode = true;
+    } else {
+      const allowedGenders = DATING_GENDER_FILTERS[req.user.gender];
+      if (allowedGenders) filter.gender = { $in: allowedGenders };
     }
 
     if (city) filter.city = { $regex: new RegExp(city, 'i') };
@@ -205,12 +223,14 @@ exports.discover = async (req, res, next) => {
       });
     }
 
-    const total = await User.countDocuments(filter);
-    const users = await User.find(filter)
-      .select('name age gender city bio photos caStatus verificationStatus specialization firmName firmType workLifeTag anonymousMode')
-      .skip(skip)
-      .limit(limitNum)
-      .lean();
+    const [total, users] = await Promise.all([
+      User.countDocuments(filter),
+      User.find(filter)
+        .select('name age gender city bio photos caStatus verificationStatus specialization firmName firmType workLifeTag anonymousMode')
+        .skip(skip)
+        .limit(limitNum)
+        .lean(),
+    ]);
 
     // Apply anonymous mode — hide name/photos for anonymous users
     const sanitisedUsers = users.map((u) => {

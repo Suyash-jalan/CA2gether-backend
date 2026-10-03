@@ -117,6 +117,7 @@ userSchema.index({ specialization: 1 });
 userSchema.index({ firmType: 1 });
 userSchema.index({ accountStatus: 1 });
 userSchema.index({ verificationStatus: 1 });
+userSchema.index({ accountStatus: 1, isEmailVerified: 1, gender: 1 });
 
 // ── Pre-save: hash password ────────────────────────────────────────
 userSchema.pre('save', async function (next) {
