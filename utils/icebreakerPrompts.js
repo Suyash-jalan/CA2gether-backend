@@ -6,7 +6,7 @@ const icebreakers = [
   "What's the funniest thing that happened during your articleship?",
   "One CA exam tip you wish someone told you earlier?",
   "Big 4 or boutique firm — what's your vibe and why?",
-  "If ICAI had a dating app, what would the tagline be?",
+  "If chartered accountants had a dating app, what would the tagline be?",
   "What's your go-to comfort food during exam season?",
   "Describe your CA journey in three words.",
   "What's the most satisfying balance sheet you've ever worked on?",

@@ -137,7 +137,7 @@ exports.uploadVerificationDoc = async (req, res, next) => {
 
     const { icaiRegNumber } = req.body;
     if (!icaiRegNumber) {
-      return res.status(400).json({ success: false, message: 'ICAI registration number is required' });
+      return res.status(400).json({ success: false, message: 'CA registration number is required' });
     }
 
     let docPath;

@@ -52,7 +52,7 @@ router.delete('/me/photos', userController.deletePhoto);
 router.post(
   '/me/verification',
   verificationUpload.single('document'),
-  [body('icaiRegNumber').trim().notEmpty().withMessage('ICAI registration number is required')],
+  [body('icaiRegNumber').trim().notEmpty().withMessage('CA registration number is required')],
   validate,
   userController.uploadVerificationDoc
 );
