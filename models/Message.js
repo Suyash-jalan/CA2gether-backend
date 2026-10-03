@@ -13,11 +13,20 @@ const messageSchema = new mongoose.Schema(
       ref: 'User',
       required: true,
     },
+    type: {
+      type: String,
+      enum: ['text', 'image'],
+      default: 'text',
+    },
     content: {
       type: String,
-      required: true,
+      required() {
+        return this.type === 'text';
+      },
       maxlength: 2000,
     },
+    imageUrl: { type: String },
+    imagePublicId: { type: String, select: false },
   },
   {
     timestamps: true,

@@ -1,6 +1,11 @@
 const Message = require('../models/Message');
 const Match = require('../models/Match');
+const Block = require('../models/Block');
+const Notification = require('../models/Notification');
+const User = require('../models/User');
 const { getRandomIcebreakers } = require('../utils/icebreakerPrompts');
+const { cloudinary, configureCloudinary } = require('../config/cloudinary');
+const fs = require('fs');
 
 // ── GET CHAT HISTORY (paginated) ────────────────────────────────────
 exports.getChatHistory = async (req, res, next) => {
@@ -32,6 +37,80 @@ exports.getChatHistory = async (req, res, next) => {
     });
   } catch (error) {
     next(error);
+  }
+};
+
+// ── SEND IMAGE MESSAGE ─────────────────────────────────────────────
+exports.sendImageMessage = async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'Please choose an image' });
+    }
+
+    const { matchId } = req.params;
+    const match = await Match.findOne({ _id: matchId, users: req.user._id, isActive: true });
+    if (!match) {
+      fs.unlink(req.file.path, () => {});
+      return res.status(404).json({ success: false, message: 'Match not found' });
+    }
+
+    const otherUserId = match.users.find((id) => id.toString() !== req.user._id.toString());
+    const blocked = await Block.exists({
+      $or: [
+        { blocker: req.user._id, blocked: otherUserId },
+        { blocker: otherUserId, blocked: req.user._id },
+      ],
+    });
+    if (blocked) {
+      fs.unlink(req.file.path, () => {});
+      return res.status(403).json({ success: false, message: 'Cannot chat — user blocked' });
+    }
+
+    let imageUrl;
+    let imagePublicId;
+    if (configureCloudinary()) {
+      const result = await cloudinary.uploader.upload(req.file.path, {
+        folder: 'ca-connect/chat',
+        resource_type: 'image',
+        allowed_formats: ['jpg', 'png', 'webp'],
+      });
+      imageUrl = result.secure_url;
+      imagePublicId = result.public_id;
+      fs.unlink(req.file.path, () => {});
+    } else {
+      imageUrl = `/uploads/${req.file.filename}`;
+    }
+
+    const message = await Message.create({
+      match: matchId,
+      sender: req.user._id,
+      type: 'image',
+      imageUrl,
+      imagePublicId,
+    });
+    const populated = await message.populate('sender', 'name photos');
+    const payload = populated.toObject();
+    delete payload.imagePublicId;
+
+    const io = req.app.get('io');
+    io?.to(`match:${matchId}`).emit('new_message', payload);
+
+    const recipient = await User.findById(otherUserId).select('notificationPreferences').lean();
+    if (recipient?.notificationPreferences?.messages !== false) {
+      await Notification.create({
+        user: otherUserId,
+        type: 'new_message',
+        data: { matchId, senderId: req.user._id, preview: 'Photo' },
+      });
+      io?.to(`user:${otherUserId}`).emit('notification', {
+        type: 'new_message', matchId, preview: 'Photo',
+      });
+    }
+
+    return res.status(201).json({ success: true, data: payload });
+  } catch (error) {
+    if (req.file?.path) fs.unlink(req.file.path, () => {});
+    return next(error);
   }
 };
 

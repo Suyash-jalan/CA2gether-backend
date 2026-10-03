@@ -21,6 +21,7 @@ const requireDatabase = require('./middleware/requireDatabase');
 const logger = require('./utils/logger');
 const User = require('./models/User');
 const Post = require('./models/Post');
+const Message = require('./models/Message');
 const { configureCloudinary } = require('./config/cloudinary');
 
 // ── Route imports ───────────────────────────────────────────────────
@@ -103,11 +104,12 @@ if (process.env.NODE_ENV === 'production') {
 app.get('/uploads/:filename', requireDatabase, async (req, res, next) => {
   try {
     const filename = path.basename(req.params.filename);
-    const [isProfilePhoto, isPostImage] = await Promise.all([
+    const [isProfilePhoto, isPostImage, isChatImage] = await Promise.all([
       User.exists({ photos: `/uploads/${filename}` }),
       Post.exists({ imageUrl: `/uploads/${filename}` }),
+      Message.exists({ imageUrl: `/uploads/${filename}` }),
     ]);
-    if (!isProfilePhoto && !isPostImage) return res.status(404).json({ success: false, message: 'Image not found' });
+    if (!isProfilePhoto && !isPostImage && !isChatImage) return res.status(404).json({ success: false, message: 'Image not found' });
     // Public profile and post images are intentionally embedded by the
     // frontend, which may run on a different origin in development/deploys.
     res.set('Cross-Origin-Resource-Policy', 'cross-origin');
@@ -182,7 +184,8 @@ app.use(errorHandler);
 //  SOCKET.IO
 // ═══════════════════════════════════════════════════════════════════
 
-initSocket(server);
+const io = initSocket(server);
+app.set('io', io);
 
 // ═══════════════════════════════════════════════════════════════════
 //  START SERVER
