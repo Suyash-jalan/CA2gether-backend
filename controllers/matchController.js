@@ -33,6 +33,13 @@ exports.swipe = async (req, res, next) => {
 
     const swipeMode = mode || 'dating';
 
+    if (
+      (swipeMode === 'dating' && target.discoveryVisibility === 'exam_buddy')
+      || (swipeMode === 'exam_buddy' && target.discoveryVisibility === 'dating')
+    ) {
+      return res.status(400).json({ success: false, message: 'This profile is not available in this mode' });
+    }
+
     const allowedDatingGenders = DATING_GENDER_FILTERS[req.user.gender];
     if (swipeMode === 'dating' && allowedDatingGenders && !allowedDatingGenders.includes(target.gender)) {
       return res.status(400).json({ success: false, message: 'This profile is not available in dating mode' });
@@ -187,12 +194,15 @@ exports.discover = async (req, res, next) => {
       isEmailVerified: true,
     };
 
-    // Exam Buddy mode filter
-    if (isExamBuddyMode) {
-      filter.examBuddyMode = true;
-    } else {
+    // Exam Buddy is open to every eligible profile, regardless of gender or
+    // whether that person uses it as their default discovery mode. Dating keeps
+    // its own gender rules, and its swipe history is excluded separately above.
+    if (!isExamBuddyMode) {
+      filter.discoveryVisibility = { $ne: 'exam_buddy' };
       const allowedGenders = DATING_GENDER_FILTERS[req.user.gender];
       if (allowedGenders) filter.gender = { $in: allowedGenders };
+    } else {
+      filter.discoveryVisibility = { $ne: 'dating' };
     }
 
     if (city) filter.city = { $regex: new RegExp(city, 'i') };

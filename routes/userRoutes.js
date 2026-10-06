@@ -35,6 +35,7 @@ router.put(
     body('anonymousMode').optional().isBoolean(),
     body('hideFromFirm').optional().isBoolean(),
     body('examBuddyMode').optional().isBoolean(),
+    body('discoveryVisibility').optional().isIn(['both', 'dating', 'exam_buddy']),
     body('notificationPreferences').optional().isObject(),
     body('notificationPreferences.matches').optional().isBoolean(),
     body('notificationPreferences.messages').optional().isBoolean(),

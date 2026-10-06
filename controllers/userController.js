@@ -23,7 +23,7 @@ exports.updateMyProfile = async (req, res, next) => {
       'name', 'age', 'gender', 'city', 'bio',
       'caStatus', 'specialization', 'firmName', 'firmType',
       'workLifeTag', 'examHistory', 'airRank',
-      'anonymousMode', 'hideFromFirm', 'examBuddyMode',
+      'anonymousMode', 'hideFromFirm', 'examBuddyMode', 'discoveryVisibility',
       'notificationPreferences',
     ];
 

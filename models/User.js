@@ -88,6 +88,11 @@ const userSchema = new mongoose.Schema(
     anonymousMode: { type: Boolean, default: false },
     hideFromFirm: { type: Boolean, default: false },
     examBuddyMode: { type: Boolean, default: false },
+    discoveryVisibility: {
+      type: String,
+      enum: ['both', 'dating', 'exam_buddy'],
+      default: 'both',
+    },
     notificationPreferences: {
       matches: { type: Boolean, default: true },
       messages: { type: Boolean, default: true },
