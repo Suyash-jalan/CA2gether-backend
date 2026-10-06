@@ -59,15 +59,54 @@ const sendWithResend = async ({ to, subject, html }) => {
   }
 };
 
+const sendWithBrevo = async ({ to, subject, html }) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+
+  try {
+    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        accept: 'application/json',
+        'api-key': process.env.BREVO_API_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        sender: {
+          name: process.env.BREVO_SENDER_NAME || 'CA2Gether',
+          email: process.env.BREVO_SENDER_EMAIL,
+        },
+        to: [{ email: to }],
+        subject,
+        htmlContent: html,
+      }),
+      signal: controller.signal,
+    });
+
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error = new Error(result.message || `Brevo request failed with status ${response.status}`);
+      error.statusCode = 502;
+      throw error;
+    }
+
+    return { messageId: result.messageId, provider: 'brevo' };
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
 /**
  * Send an email.
  * @param {{ to: string, subject: string, html: string }} options
  */
 const sendEmail = async ({ to, subject, html }) => {
   try {
-    const info = process.env.RESEND_API_KEY
-      ? await sendWithResend({ to, subject, html })
-      : await getTransporter().sendMail({
+    const info = process.env.BREVO_API_KEY
+      ? await sendWithBrevo({ to, subject, html })
+      : process.env.RESEND_API_KEY
+        ? await sendWithResend({ to, subject, html })
+        : await getTransporter().sendMail({
           from: process.env.EMAIL_FROM || '"CA2gether" <noreply@caconnect.com>',
           to,
           subject,

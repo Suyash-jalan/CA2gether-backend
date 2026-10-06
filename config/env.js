@@ -16,10 +16,11 @@ function validateEnvironment() {
   }
 
   if (process.env.NODE_ENV === 'production') {
+    const brevoConfigured = Boolean(process.env.BREVO_API_KEY && process.env.BREVO_SENDER_EMAIL);
     const resendConfigured = Boolean(process.env.RESEND_API_KEY);
     const smtpConfigured = Boolean(process.env.EMAIL_HOST && process.env.EMAIL_USER && process.env.EMAIL_PASS);
-    if (!resendConfigured && !smtpConfigured) {
-      throw new Error('Configure RESEND_API_KEY or EMAIL_HOST, EMAIL_USER, and EMAIL_PASS');
+    if (!brevoConfigured && !resendConfigured && !smtpConfigured) {
+      throw new Error('Configure Brevo, Resend, or SMTP email credentials');
     }
   }
 }
