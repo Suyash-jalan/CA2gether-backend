@@ -291,6 +291,9 @@ exports.resendVerification = async (req, res, next) => {
 exports.forgotPassword = async (req, res, next) => {
   try {
     const { email } = req.body;
+    const message = 'If an account with that email exists, a reset link has been sent';
+    const hostname = (req.hostname || '').toLowerCase();
+    const isLocalRequest = ['localhost', '127.0.0.1', '::1'].includes(hostname);
 
     const user = await User.findOne({ email });
 
@@ -298,18 +301,39 @@ exports.forgotPassword = async (req, res, next) => {
     if (!user) {
       return res.json({
         success: true,
-        message: 'If an account with that email exists, a reset link has been sent',
+        message,
       });
     }
 
     const resetToken = user.createPasswordResetToken();
     await user.save({ validateBeforeSave: false });
 
-    await sendPasswordResetEmail(user.email, resetToken);
+    const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:3000')
+      .split(',')[0]
+      .trim()
+      .replace(/\/$/, '');
+    const resetUrl = `${frontendUrl}/reset-password?token=${resetToken}`;
+
+    try {
+      await sendPasswordResetEmail(user.email, resetToken);
+    } catch (emailError) {
+      if (!isLocalRequest) {
+        // Do not leave a usable token behind when its email was not delivered.
+        user.passwordResetToken = undefined;
+        user.passwordResetExpires = undefined;
+        await user.save({ validateBeforeSave: false });
+        throw emailError;
+      }
+
+      logger.warn(`Password reset email unavailable in development: ${emailError.message}`);
+    }
 
     res.json({
       success: true,
-      message: 'If an account with that email exists, a reset link has been sent',
+      message,
+      // Local development needs a usable path even when SMTP credentials are
+      // intentionally absent or invalid. Never expose reset tokens in production.
+      ...(isLocalRequest && { resetUrl }),
     });
   } catch (error) {
     next(error);

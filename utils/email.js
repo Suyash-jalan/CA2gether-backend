@@ -3,6 +3,11 @@ const logger = require('./logger');
 
 let transporter;
 
+const getFrontendUrl = () => (process.env.FRONTEND_URL || 'http://localhost:3000')
+  .split(',')[0]
+  .trim()
+  .replace(/\/$/, '');
+
 const getTransporter = () => {
   if (!transporter) {
     transporter = nodemailer.createTransport({
@@ -13,9 +18,45 @@ const getTransporter = () => {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
       },
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 15000,
     });
   }
   return transporter;
+};
+
+const sendWithResend = async ({ to, subject, html }) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: process.env.RESEND_FROM || 'CA2Gether <onboarding@resend.dev>',
+        to: [to],
+        subject,
+        html,
+      }),
+      signal: controller.signal,
+    });
+
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error = new Error(result.message || `Resend request failed with status ${response.status}`);
+      error.statusCode = 502;
+      throw error;
+    }
+
+    return { messageId: result.id, provider: 'resend' };
+  } finally {
+    clearTimeout(timeout);
+  }
 };
 
 /**
@@ -24,13 +65,15 @@ const getTransporter = () => {
  */
 const sendEmail = async ({ to, subject, html }) => {
   try {
-    const info = await getTransporter().sendMail({
-      from: process.env.EMAIL_FROM || '"CA2gether" <noreply@caconnect.com>',
-      to,
-      subject,
-      html,
-    });
-    logger.info(`Email sent: ${info.messageId} → ${to}`);
+    const info = process.env.RESEND_API_KEY
+      ? await sendWithResend({ to, subject, html })
+      : await getTransporter().sendMail({
+          from: process.env.EMAIL_FROM || '"CA2gether" <noreply@caconnect.com>',
+          to,
+          subject,
+          html,
+        });
+    logger.info(`Email sent through ${info.provider || 'smtp'}: ${info.messageId}`);
     return info;
   } catch (error) {
     logger.error(`Email send failed: ${error.message}`);
@@ -42,7 +85,7 @@ const sendEmail = async ({ to, subject, html }) => {
  * Send email-verification link.
  */
 const sendVerificationEmail = async (email, token) => {
-  const link = `${process.env.FRONTEND_URL}/verify-email?token=${token}`;
+  const link = `${getFrontendUrl()}/verify-email?token=${token}`;
   await sendEmail({
     to: email,
     subject: 'CA2gether — Verify Your Email',
@@ -66,7 +109,7 @@ const sendVerificationEmail = async (email, token) => {
  * Send password-reset link.
  */
 const sendPasswordResetEmail = async (email, token) => {
-  const link = `${process.env.FRONTEND_URL}/reset-password?token=${token}`;
+  const link = `${getFrontendUrl()}/reset-password?token=${token}`;
   await sendEmail({
     to: email,
     subject: 'CA2gether — Reset Your Password',

@@ -145,7 +145,10 @@ app.get('/api/health', (req, res) => {
 
 app.get('/api/ready', (req, res) => {
   const dbReady = mongoose.connection.readyState === 1;
-  const emailConfigured = Boolean(process.env.EMAIL_HOST && process.env.EMAIL_USER && process.env.EMAIL_PASS);
+  const emailConfigured = Boolean(
+    process.env.RESEND_API_KEY
+    || (process.env.EMAIL_HOST && process.env.EMAIL_USER && process.env.EMAIL_PASS)
+  );
   const persistentUploads = process.env.NODE_ENV !== 'production' || configureCloudinary();
   const ready = dbReady && emailConfigured && persistentUploads;
   res.status(ready ? 200 : 503).json({
