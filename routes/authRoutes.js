@@ -65,6 +65,40 @@ router.post(
   authController.login
 );
 
+router.post(
+  '/google',
+  authLimiter,
+  [body('credential').isString().notEmpty().withMessage('Google credential is required')],
+  validate,
+  authController.googleLogin
+);
+
+router.post(
+  '/google/signup',
+  authLimiter,
+  [
+    body('credential').isString().notEmpty().withMessage('Google credential is required'),
+    body('name').trim().notEmpty().isLength({ max: 100 }).withMessage('Name is required'),
+    body('gender').isIn(['Male', 'Female', 'Non-binary', 'Prefer not to say']),
+    body('caStatus').isIn(['CA Foundation', 'CA Inter', 'CA Final', 'Articleship', 'Qualified CA']),
+    body('icaiRegNumber').trim().isLength({ min: 4, max: 30 }).matches(/^[A-Za-z0-9/ -]+$/),
+    body('dateOfBirth')
+      .isISO8601({ strict: true })
+      .custom((value) => {
+        const birthDate = new Date(`${value}T00:00:00.000Z`);
+        const today = new Date();
+        let age = today.getUTCFullYear() - birthDate.getUTCFullYear();
+        const month = today.getUTCMonth() - birthDate.getUTCMonth();
+        if (month < 0 || (month === 0 && today.getUTCDate() < birthDate.getUTCDate())) age -= 1;
+        if (age < 18) throw new Error('You must be at least 18 years old to join');
+        if (age > 99) throw new Error('Please enter a valid date of birth');
+        return true;
+      }),
+  ],
+  validate,
+  authController.googleSignup
+);
+
 router.post('/refresh-token', authController.refreshToken);
 
 router.get('/verify-email/:token', authController.verifyEmail);

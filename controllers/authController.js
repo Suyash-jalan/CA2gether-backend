@@ -1,10 +1,13 @@
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
+const { OAuth2Client } = require('google-auth-library');
 const User = require('../models/User');
 const RefreshToken = require('../models/RefreshToken');
 const { sendVerificationEmail, sendPasswordResetEmail } = require('../utils/email');
 const logger = require('../utils/logger');
 const { encrypt } = require('../utils/encryption');
+
+const googleClient = new OAuth2Client();
 
 // ── Helpers ────────────────────────────────────────────────────────
 const generateAccessToken = (userId) =>
@@ -27,6 +30,59 @@ const setRefreshCookie = (res, token) => {
     path: '/api/auth',
   });
 };
+
+const issueSession = async (user, res) => {
+  const accessToken = generateAccessToken(user._id);
+  const refreshTokenStr = generateRefreshToken(user._id);
+  await RefreshToken.create({
+    user: user._id,
+    token: refreshTokenStr,
+    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+  });
+  setRefreshCookie(res, refreshTokenStr);
+  return { accessToken, refreshTokenStr };
+};
+
+const verifyGoogleCredential = async (credential) => {
+  if (!process.env.GOOGLE_CLIENT_ID) {
+    const error = new Error('Google Sign-In is not configured');
+    error.statusCode = 503;
+    throw error;
+  }
+  let ticket;
+  try {
+    ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+  } catch {
+    const error = new Error('Google sign-in could not be verified');
+    error.statusCode = 401;
+    throw error;
+  }
+  const payload = ticket.getPayload();
+  if (!payload?.sub || !payload.email || !payload.email_verified) {
+    const error = new Error('Google account email could not be verified');
+    error.statusCode = 401;
+    throw error;
+  }
+  return {
+    googleId: payload.sub,
+    email: payload.email.toLowerCase(),
+    name: payload.name || payload.given_name || '',
+  };
+};
+
+const authUserResponse = (user) => ({
+  id: user._id,
+  email: user.email,
+  name: user.name,
+  caStatus: user.caStatus,
+  gender: user.gender,
+  isEmailVerified: user.isEmailVerified,
+  role: user.role,
+  authProvider: user.authProvider,
+});
 
 // ── SIGNUP ──────────────────────────────────────────────────────────
 exports.signup = async (req, res, next) => {
@@ -179,6 +235,87 @@ exports.login = async (req, res, next) => {
     });
   } catch (error) {
     next(error);
+  }
+};
+
+// ── GOOGLE SIGN-IN ─────────────────────────────────────────────────
+exports.googleLogin = async (req, res, next) => {
+  try {
+    const googleProfile = await verifyGoogleCredential(req.body.credential);
+    const user = await User.findOne({ email: googleProfile.email }).select('+googleId +password');
+
+    if (!user) {
+      return res.status(202).json({
+        success: true,
+        needsRegistration: true,
+        profile: { email: googleProfile.email, name: googleProfile.name },
+      });
+    }
+    if (user.accountStatus === 'banned') {
+      return res.status(403).json({ success: false, message: 'Account has been banned' });
+    }
+    if (user.googleId && user.googleId !== googleProfile.googleId) {
+      return res.status(409).json({ success: false, message: 'This email is linked to another Google account' });
+    }
+
+    user.googleId = googleProfile.googleId;
+    user.authProvider = user.password ? 'both' : 'google';
+    user.isEmailVerified = true;
+    user.emailVerificationToken = undefined;
+    user.emailVerificationExpires = undefined;
+    if (user.accountStatus === 'deactivated') user.accountStatus = 'active';
+    await user.save({ validateBeforeSave: false });
+
+    const { accessToken } = await issueSession(user, res);
+    return res.json({ success: true, accessToken, user: authUserResponse(user) });
+  } catch (error) {
+    if (error.statusCode === 401) {
+      return res.status(401).json({ success: false, message: error.message });
+    }
+    return next(error);
+  }
+};
+
+exports.googleSignup = async (req, res, next) => {
+  try {
+    const googleProfile = await verifyGoogleCredential(req.body.credential);
+    const existing = await User.findOne({ email: googleProfile.email }).select('+googleId');
+    if (existing) {
+      return res.status(409).json({ success: false, message: 'Account already exists. Use Google Sign-In.' });
+    }
+
+    const { name, dateOfBirth, gender, caStatus, icaiRegNumber } = req.body;
+    const birthDate = new Date(`${dateOfBirth}T00:00:00.000Z`);
+    const today = new Date();
+    let age = today.getUTCFullYear() - birthDate.getUTCFullYear();
+    const month = today.getUTCMonth() - birthDate.getUTCMonth();
+    if (month < 0 || (month === 0 && today.getUTCDate() < birthDate.getUTCDate())) age -= 1;
+
+    const user = await User.create({
+      email: googleProfile.email,
+      googleId: googleProfile.googleId,
+      authProvider: 'google',
+      name: name.trim() || googleProfile.name,
+      dateOfBirth: birthDate,
+      age,
+      gender,
+      caStatus,
+      icaiRegNumber: encrypt(icaiRegNumber.trim().toUpperCase()),
+      isEmailVerified: true,
+    });
+
+    const { accessToken } = await issueSession(user, res);
+    return res.status(201).json({
+      success: true,
+      message: 'Google account created successfully',
+      accessToken,
+      user: authUserResponse(user),
+    });
+  } catch (error) {
+    if (error.statusCode === 401) {
+      return res.status(401).json({ success: false, message: error.message });
+    }
+    return next(error);
   }
 };
 
@@ -381,6 +518,7 @@ exports.getMe = async (req, res) => {
       isEmailVerified: req.user.isEmailVerified,
       role: req.user.role,
       accountStatus: req.user.accountStatus,
+      authProvider: req.user.authProvider,
     },
   });
 };

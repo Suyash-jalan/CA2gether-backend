@@ -14,9 +14,17 @@ const userSchema = new mongoose.Schema(
     },
     password: {
       type: String,
-      required: [true, 'Password is required'],
+      required() {
+        return !this.googleId;
+      },
       minlength: 8,
       select: false, // never returned in queries by default
+    },
+    googleId: { type: String, unique: true, sparse: true, select: false },
+    authProvider: {
+      type: String,
+      enum: ['password', 'google', 'both'],
+      default: 'password',
     },
     role: {
       type: String,
@@ -134,6 +142,7 @@ userSchema.pre('save', async function (next) {
 
 // ── Instance method: compare password ──────────────────────────────
 userSchema.methods.comparePassword = async function (candidatePassword) {
+  if (!this.password) return false;
   return bcrypt.compare(candidatePassword, this.password);
 };
 

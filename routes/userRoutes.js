@@ -64,7 +64,7 @@ router.post('/me/reactivate', userController.reactivateAccount);
 router.delete(
   '/me',
   [
-    body('password').isString().notEmpty().withMessage('Current password is required'),
+    body('password').optional({ values: 'falsy' }).isString(),
     body('confirmation').equals('DELETE').withMessage('Type DELETE to confirm'),
   ],
   validate,

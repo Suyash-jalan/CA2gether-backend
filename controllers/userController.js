@@ -264,9 +264,11 @@ exports.deleteAccount = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Account not found' });
     }
 
-    const passwordMatches = await user.comparePassword(req.body.password);
-    if (!passwordMatches) {
-      return res.status(401).json({ success: false, message: 'Current password is incorrect' });
+    if (user.password) {
+      const passwordMatches = await user.comparePassword(req.body.password);
+      if (!passwordMatches) {
+        return res.status(401).json({ success: false, message: 'Current password is incorrect' });
+      }
     }
 
     const [posts, matches] = await Promise.all([
