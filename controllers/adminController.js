@@ -12,6 +12,19 @@ const logAction = async (adminId, action, target, details) => {
 };
 
 // ═══════════════════════════════════════════════════════════════════
+//  DASHBOARD SUMMARY
+// ═══════════════════════════════════════════════════════════════════
+
+exports.getDashboardStats = async (_req, res, next) => {
+  try {
+    const totalAccounts = await User.countDocuments();
+    res.json({ success: true, data: { totalAccounts } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════════
 //  VERIFICATION MANAGEMENT
 // ═══════════════════════════════════════════════════════════════════
 

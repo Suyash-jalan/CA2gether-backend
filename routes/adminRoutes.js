@@ -11,6 +11,9 @@ const router = express.Router();
 // All admin routes require auth + admin role
 router.use(protect, requireAdmin);
 
+// ── Dashboard ──────────────────────────────────────────────────────
+router.get('/stats', adminController.getDashboardStats);
+
 // ── Verifications ───────────────────────────────────────────────────
 router.get('/verifications', adminController.getPendingVerifications);
 router.get('/verifications/:userId', adminController.getVerificationDetail);
