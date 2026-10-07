@@ -22,6 +22,24 @@ exports.getChatHistory = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Match not found' });
     }
 
+    const unreadMessages = await Message.find({
+      match: matchId,
+      sender: { $ne: req.user._id },
+      readAt: null,
+    }).select('_id').lean();
+
+    if (unreadMessages.length) {
+      const readAt = new Date();
+      const messageIds = unreadMessages.map((message) => message._id);
+      await Message.updateMany({ _id: { $in: messageIds } }, { $set: { readAt } });
+      req.app.get('io')?.to(`match:${matchId}`).emit('messages_read', {
+        matchId,
+        readerId: req.user._id.toString(),
+        messageIds: messageIds.map((id) => id.toString()),
+        readAt,
+      });
+    }
+
     const total = await Message.countDocuments({ match: matchId });
     const messages = await Message.find({ match: matchId })
       .populate('sender', 'name photos')

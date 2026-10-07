@@ -27,6 +27,7 @@ const messageSchema = new mongoose.Schema(
     },
     imageUrl: { type: String },
     imagePublicId: { type: String, select: false },
+    readAt: { type: Date, default: null },
   },
   {
     timestamps: true,
@@ -35,5 +36,6 @@ const messageSchema = new mongoose.Schema(
 
 // Compound index for paginated chat history retrieval
 messageSchema.index({ match: 1, createdAt: -1 });
+messageSchema.index({ match: 1, readAt: 1, sender: 1 });
 
 module.exports = mongoose.model('Message', messageSchema);

@@ -144,6 +144,39 @@ const initSocket = (httpServer) => {
       }
     });
 
+    // Mark messages from the other user as read while this chat is open.
+    socket.on('mark_read', async ({ matchId } = {}) => {
+      try {
+        if (!socket.rooms.has(`match:${matchId}`)) return;
+
+        const match = await Match.findOne({
+          _id: matchId,
+          users: socket.userId,
+          isActive: true,
+        }).select('_id');
+        if (!match) return;
+
+        const unreadMessages = await Message.find({
+          match: matchId,
+          sender: { $ne: socket.userId },
+          readAt: null,
+        }).select('_id').lean();
+        if (!unreadMessages.length) return;
+
+        const readAt = new Date();
+        const messageIds = unreadMessages.map((message) => message._id);
+        await Message.updateMany({ _id: { $in: messageIds } }, { $set: { readAt } });
+        io.to(`match:${matchId}`).emit('messages_read', {
+          matchId,
+          readerId: socket.userId,
+          messageIds: messageIds.map((id) => id.toString()),
+          readAt,
+        });
+      } catch (err) {
+        logger.error(`mark_read error: ${err.message}`);
+      }
+    });
+
     // ── Typing indicator ───────────────────────────────────────
     socket.on('typing', ({ matchId } = {}) => {
       if (!socket.rooms.has(`match:${matchId}`)) return;

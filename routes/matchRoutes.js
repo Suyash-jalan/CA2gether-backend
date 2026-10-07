@@ -1,5 +1,5 @@
 const express = require('express');
-const { body, query } = require('express-validator');
+const { body, param, query } = require('express-validator');
 const matchController = require('../controllers/matchController');
 const { protect, requireVerifiedEmail } = require('../middleware/auth');
 const { loadBlockList } = require('../middleware/blockFilter');
@@ -49,6 +49,27 @@ router.get(
   [query('mode').optional().isIn(['dating', 'exam_buddy'])],
   validate,
   matchController.getIncomingLikes
+);
+
+router.get(
+  '/passed',
+  [
+    query('page').optional().isInt({ min: 1 }),
+    query('limit').optional().isInt({ min: 1, max: 50 }),
+    query('mode').optional().isIn(['dating', 'exam_buddy']),
+  ],
+  validate,
+  matchController.getPassedProfiles
+);
+
+router.delete(
+  '/passed/:userId',
+  [
+    param('userId').isMongoId().withMessage('Valid user ID is required'),
+    query('mode').optional().isIn(['dating', 'exam_buddy']),
+  ],
+  validate,
+  matchController.restorePassedProfile
 );
 
 // ── Unmatch ─────────────────────────────────────────────────────────

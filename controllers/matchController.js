@@ -154,6 +154,72 @@ exports.getIncomingLikes = async (req, res, next) => {
   }
 };
 
+// ── PROFILES I PASSED ──────────────────────────────────────────────
+exports.getPassedProfiles = async (req, res, next) => {
+  try {
+    const { page = 1, limit = 20, mode } = req.query;
+    const pageNum = Math.max(parseInt(page, 10) || 1, 1);
+    const limitNum = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 50);
+    const skip = (pageNum - 1) * limitNum;
+    const blockedIds = req.blockedUserIds || [];
+    const filter = { swiper: req.user._id, action: 'pass' };
+    if (mode) filter.mode = mode;
+
+    const [total, passes] = await Promise.all([
+      Swipe.countDocuments(filter),
+      Swipe.find(filter)
+        .populate({
+          path: 'swiped',
+          match: { accountStatus: 'active', _id: { $nin: blockedIds } },
+          select: 'name age gender city bio photos caStatus specialization firmName firmType workLifeTag anonymousMode',
+        })
+        .sort({ updatedAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .lean(),
+    ]);
+
+    const data = passes
+      .filter((pass) => pass.swiped)
+      .map((pass) => ({
+        _id: pass._id,
+        mode: pass.mode,
+        passedAt: pass.updatedAt,
+        user: pass.swiped.anonymousMode
+          ? { ...pass.swiped, name: 'Anonymous CA', photos: [] }
+          : pass.swiped,
+      }));
+
+    res.json({
+      success: true,
+      data,
+      pagination: { page: pageNum, limit: limitNum, total, pages: Math.ceil(total / limitNum) },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.restorePassedProfile = async (req, res, next) => {
+  try {
+    const filter = {
+      swiper: req.user._id,
+      swiped: req.params.userId,
+      action: 'pass',
+    };
+    if (req.query.mode) filter.mode = req.query.mode;
+
+    const removed = await Swipe.findOneAndDelete(filter);
+    if (!removed) {
+      return res.status(404).json({ success: false, message: 'Passed profile not found' });
+    }
+
+    res.json({ success: true, message: 'Profile returned to Discover' });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // ── DISCOVERY FEED ──────────────────────────────────────────────────
 exports.discover = async (req, res, next) => {
   try {
