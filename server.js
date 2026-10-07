@@ -151,10 +151,11 @@ app.get('/api/ready', (req, res) => {
     || (process.env.EMAIL_HOST && process.env.EMAIL_USER && process.env.EMAIL_PASS)
   );
   const persistentUploads = process.env.NODE_ENV !== 'production' || configureCloudinary();
-  const ready = dbReady && emailConfigured && persistentUploads;
+  const googleConfigured = Boolean(process.env.GOOGLE_CLIENT_ID);
+  const ready = dbReady && emailConfigured && persistentUploads && googleConfigured;
   res.status(ready ? 200 : 503).json({
     success: ready,
-    checks: { database: dbReady, emailConfigured, persistentUploads },
+    checks: { database: dbReady, emailConfigured, persistentUploads, googleConfigured },
   });
 });
 

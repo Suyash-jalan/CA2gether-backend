@@ -116,13 +116,20 @@ exports.getProfilePosts = async (req, res, next) => {
         .lean(),
     ]);
 
-    const data = await Promise.all(posts.map(async (post) => ({
+    const commentCounts = posts.length
+      ? await Comment.aggregate([
+          { $match: { post: { $in: posts.map((post) => post._id) } } },
+          { $group: { _id: '$post', count: { $sum: 1 } } },
+        ])
+      : [];
+    const commentCountByPost = new Map(commentCounts.map((item) => [item._id.toString(), item.count]));
+    const data = posts.map((post) => ({
       ...post,
       likeCount: post.likes?.length || 0,
       isLiked: post.likes?.some((id) => id.toString() === req.user._id.toString()) || false,
-      commentCount: await Comment.countDocuments({ post: post._id }),
+      commentCount: commentCountByPost.get(post._id.toString()) || 0,
       likes: undefined,
-    })));
+    }));
 
     res.json({
       success: true,
