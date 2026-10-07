@@ -53,6 +53,13 @@ exports.swipe = async (req, res, next) => {
       { upsert: true, new: true }
     );
 
+    if (action === 'like') {
+      req.app.get('io')?.to(`user:${targetUserId}`).emit('incoming_like', {
+        mode: swipeMode,
+        senderId: swiperId.toString(),
+      });
+    }
+
     let matched = false;
 
     // If it's a "like", check for mutual match
@@ -95,6 +102,23 @@ exports.swipe = async (req, res, next) => {
             }
 
             matched = true;
+          } else if (!existingMatch.isActive) {
+            existingMatch.isActive = true;
+            await existingMatch.save({ session });
+
+            const notifications = [];
+            if (req.user.notificationPreferences?.matches !== false) {
+              notifications.push({ user: swiperId, type: 'new_match', data: { matchId: existingMatch._id, matchedUserId: targetUserId } });
+            }
+            if (target.notificationPreferences?.matches !== false) {
+              notifications.push({ user: targetUserId, type: 'new_match', data: { matchId: existingMatch._id, matchedUserId: swiperId } });
+            }
+            if (notifications.length) {
+              await Notification.create(notifications, { session, ordered: true });
+            }
+            matched = true;
+          } else {
+            matched = true;
           }
 
           await session.commitTransaction();
@@ -126,7 +150,7 @@ exports.getIncomingLikes = async (req, res, next) => {
       swiper: { $nin: blockedIds },
     })
       .populate('swiper', 'name photos city caStatus verificationStatus bio')
-      .sort({ createdAt: -1 })
+      .sort({ updatedAt: -1 })
       .lean();
 
     const activeMatches = await Match.find({
@@ -145,7 +169,7 @@ exports.getIncomingLikes = async (req, res, next) => {
       .map((like) => ({
         _id: like._id,
         mode: like.mode,
-        createdAt: like.createdAt,
+        createdAt: like.updatedAt || like.createdAt,
         user: like.swiper,
       }));
 

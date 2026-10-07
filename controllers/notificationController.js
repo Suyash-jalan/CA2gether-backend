@@ -8,7 +8,9 @@ exports.getNotifications = async (req, res, next) => {
     const limitNum = Math.min(Math.max(parseInt(limit, 10) || 30, 1), 100);
     const skip = (pageNum - 1) * limitNum;
 
-    const filter = { user: req.user._id };
+    // Chat has its own unread badges. Keep message activity out of the
+    // notification bell, including records created by older deployments.
+    const filter = { user: req.user._id, type: { $ne: 'new_message' } };
     if (unreadOnly === 'true') filter.isRead = false;
 
     const total = await Notification.countDocuments(filter);
@@ -18,7 +20,11 @@ exports.getNotifications = async (req, res, next) => {
       .limit(limitNum)
       .lean();
 
-    const unreadCount = await Notification.countDocuments({ user: req.user._id, isRead: false });
+    const unreadCount = await Notification.countDocuments({
+      user: req.user._id,
+      type: { $ne: 'new_message' },
+      isRead: false,
+    });
 
     res.json({
       success: true,

@@ -3,7 +3,6 @@ const jwt = require('jsonwebtoken');
 const Message = require('../models/Message');
 const Match = require('../models/Match');
 const Block = require('../models/Block');
-const Notification = require('../models/Notification');
 const User = require('../models/User');
 const logger = require('../utils/logger');
 const { sanitizeText } = require('../utils/sanitize');
@@ -127,18 +126,6 @@ const initSocket = (httpServer) => {
         io.to(`match:${matchId}`).emit('new_message', populated);
         io.to(`user:${otherUserId}`).emit('chat_unread_changed');
 
-        // Create notification for the other user
-        const recipient = await User.findById(otherUserId).select('notificationPreferences').lean();
-        if (recipient?.notificationPreferences?.messages !== false) {
-          await Notification.create({
-            user: otherUserId,
-            type: 'new_message',
-            data: { matchId, senderId: socket.userId, preview: sanitizedContent.substring(0, 60) },
-          });
-          io.to(`user:${otherUserId}`).emit('notification', {
-            type: 'new_message', matchId, preview: sanitizedContent.substring(0, 60),
-          });
-        }
       } catch (err) {
         logger.error(`send_message error: ${err.message}`);
         socket.emit('error_msg', { message: 'Server error sending message' });

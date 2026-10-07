@@ -5,6 +5,31 @@ const { sanitizeText } = require('../utils/sanitize');
 const logger = require('../utils/logger');
 const fs = require('fs');
 const path = require('path');
+const mongoose = require('mongoose');
+const Swipe = require('../models/Swipe');
+const Match = require('../models/Match');
+const Message = require('../models/Message');
+const Post = require('../models/Post');
+const Comment = require('../models/Comment');
+const Event = require('../models/Event');
+const Notification = require('../models/Notification');
+const Block = require('../models/Block');
+const Report = require('../models/Report');
+const RefreshToken = require('../models/RefreshToken');
+const News = require('../models/News');
+const AdminLog = require('../models/AdminLog');
+
+const cloudinaryPublicIdFromUrl = (url) => {
+  if (!url || !url.includes('cloudinary')) return null;
+  const match = url.match(/\/upload\/(?:v\d+\/)?(.+)\.[^/.]+$/);
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+};
+
+const removeLocalUpload = (url) => {
+  if (!url?.startsWith('/uploads/')) return;
+  const filename = path.basename(url);
+  fs.unlink(path.join(__dirname, '..', 'uploads', filename), () => {});
+};
 
 // ── GET MY FULL PROFILE ─────────────────────────────────────────────
 exports.getMyProfile = async (req, res, next) => {
@@ -226,5 +251,91 @@ exports.reactivateAccount = async (req, res, next) => {
     res.json({ success: true, message: 'Account reactivated' });
   } catch (error) {
     next(error);
+  }
+};
+
+// ── PERMANENTLY DELETE ACCOUNT ─────────────────────────────────────
+exports.deleteAccount = async (req, res, next) => {
+  let session;
+  try {
+    const userId = req.user._id;
+    const user = await User.findById(userId).select('+password +verificationDocument photos');
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Account not found' });
+    }
+
+    const passwordMatches = await user.comparePassword(req.body.password);
+    if (!passwordMatches) {
+      return res.status(401).json({ success: false, message: 'Current password is incorrect' });
+    }
+
+    const [posts, matches] = await Promise.all([
+      Post.find({ author: userId }).select('+imagePublicId imageUrl').lean(),
+      Match.find({ users: userId }).select('_id').lean(),
+    ]);
+    const postIds = posts.map((post) => post._id);
+    const matchIds = matches.map((match) => match._id);
+    const messages = matchIds.length
+      ? await Message.find({ match: { $in: matchIds } }).select('+imagePublicId imageUrl').lean()
+      : [];
+
+    session = await mongoose.startSession();
+    session.startTransaction();
+
+    await Comment.deleteMany({ $or: [{ author: userId }, { post: { $in: postIds } }] }, { session });
+    await Post.deleteMany({ author: userId }, { session });
+    await Post.updateMany({ likes: userId }, { $pull: { likes: userId } }, { session });
+    await Message.deleteMany({ match: { $in: matchIds } }, { session });
+    await Match.deleteMany({ _id: { $in: matchIds } }, { session });
+    await Swipe.deleteMany({ $or: [{ swiper: userId }, { swiped: userId }] }, { session });
+    await Block.deleteMany({ $or: [{ blocker: userId }, { blocked: userId }] }, { session });
+    await Notification.deleteMany({
+        $or: [
+          { user: userId },
+          { 'data.senderId': { $in: [userId, userId.toString()] } },
+          { 'data.matchedUserId': { $in: [userId, userId.toString()] } },
+        ],
+      }, { session });
+    await Event.deleteMany({ creator: userId }, { session });
+    await Event.updateMany({ attendees: userId }, { $pull: { attendees: userId } }, { session });
+    await Report.deleteMany({ $or: [{ reporter: userId }, { reportedUser: userId }, { reviewedBy: userId }] }, { session });
+    await RefreshToken.deleteMany({ user: userId }, { session });
+    await News.deleteMany({ author: userId }, { session });
+    await AdminLog.deleteMany({ admin: userId }, { session });
+    await User.deleteOne({ _id: userId }, { session });
+    await session.commitTransaction();
+
+    const cloudinaryIds = new Set();
+    const localUrls = new Set();
+    const collectAsset = (url, storedPublicId) => {
+      if (storedPublicId) cloudinaryIds.add(storedPublicId);
+      const derivedId = cloudinaryPublicIdFromUrl(url);
+      if (derivedId) cloudinaryIds.add(derivedId);
+      if (url?.startsWith('/uploads/')) localUrls.add(url);
+    };
+    (user.photos || []).forEach((url) => collectAsset(url));
+    posts.forEach((post) => collectAsset(post.imageUrl, post.imagePublicId));
+    messages.forEach((message) => collectAsset(message.imageUrl, message.imagePublicId));
+
+    if (user.verificationDocument?.startsWith('cloudinary:')) {
+      cloudinaryIds.add(user.verificationDocument.slice('cloudinary:'.length));
+    } else if (user.verificationDocument?.startsWith('private:')) {
+      fs.unlink(path.join(__dirname, '..', 'private_uploads', path.basename(user.verificationDocument.slice('private:'.length))), () => {});
+    }
+    localUrls.forEach(removeLocalUpload);
+
+    if (cloudinaryIds.size && configureCloudinary()) {
+      const removals = [...cloudinaryIds].map((publicId) => cloudinary.uploader.destroy(publicId));
+      const results = await Promise.allSettled(removals);
+      const failures = results.filter((result) => result.status === 'rejected').length;
+      if (failures) logger.warn(`Account deleted but ${failures} Cloudinary asset(s) could not be removed`);
+    }
+
+    return res.json({ success: true, message: 'Account permanently deleted' });
+  } catch (error) {
+    if (session?.inTransaction()) await session.abortTransaction();
+    return next(error);
+  } finally {
+    session?.endSession();
   }
 };

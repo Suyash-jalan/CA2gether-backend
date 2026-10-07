@@ -1,8 +1,6 @@
 const Message = require('../models/Message');
 const Match = require('../models/Match');
 const Block = require('../models/Block');
-const Notification = require('../models/Notification');
-const User = require('../models/User');
 const { getRandomIcebreakers } = require('../utils/icebreakerPrompts');
 const { cloudinary, configureCloudinary } = require('../config/cloudinary');
 const fs = require('fs');
@@ -132,18 +130,6 @@ exports.sendImageMessage = async (req, res, next) => {
     const io = req.app.get('io');
     io?.to(`match:${matchId}`).emit('new_message', payload);
     io?.to(`user:${otherUserId}`).emit('chat_unread_changed');
-
-    const recipient = await User.findById(otherUserId).select('notificationPreferences').lean();
-    if (recipient?.notificationPreferences?.messages !== false) {
-      await Notification.create({
-        user: otherUserId,
-        type: 'new_message',
-        data: { matchId, senderId: req.user._id, preview: 'Photo' },
-      });
-      io?.to(`user:${otherUserId}`).emit('notification', {
-        type: 'new_message', matchId, preview: 'Photo',
-      });
-    }
 
     return res.status(201).json({ success: true, data: payload });
   } catch (error) {

@@ -61,6 +61,15 @@ router.post(
 // ── Account lifecycle ───────────────────────────────────────────────
 router.post('/me/deactivate', userController.deactivateAccount);
 router.post('/me/reactivate', userController.reactivateAccount);
+router.delete(
+  '/me',
+  [
+    body('password').isString().notEmpty().withMessage('Current password is required'),
+    body('confirmation').equals('DELETE').withMessage('Type DELETE to confirm'),
+  ],
+  validate,
+  userController.deleteAccount
+);
 
 // ── View other user's profile ───────────────────────────────────────
 router.get('/:id', requireVerifiedEmail, loadBlockList, userController.getUserProfile);
