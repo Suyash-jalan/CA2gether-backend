@@ -7,6 +7,8 @@ const router = express.Router();
 
 router.use(protect, requireVerifiedEmail);
 
+router.get('/unread-count', chatController.getUnreadCount);
+
 // ── Chat history (paginated) ────────────────────────────────────────
 router.get('/:matchId/messages', chatController.getChatHistory);
 

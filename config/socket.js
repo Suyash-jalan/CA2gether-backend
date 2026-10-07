@@ -125,6 +125,7 @@ const initSocket = (httpServer) => {
 
         // Broadcast to the match room
         io.to(`match:${matchId}`).emit('new_message', populated);
+        io.to(`user:${otherUserId}`).emit('chat_unread_changed');
 
         // Create notification for the other user
         const recipient = await User.findById(otherUserId).select('notificationPreferences').lean();
@@ -160,18 +161,22 @@ const initSocket = (httpServer) => {
           match: matchId,
           sender: { $ne: socket.userId },
           readAt: null,
-        }).select('_id').lean();
+        }).select('_id sender').lean();
         if (!unreadMessages.length) return;
 
         const readAt = new Date();
         const messageIds = unreadMessages.map((message) => message._id);
         await Message.updateMany({ _id: { $in: messageIds } }, { $set: { readAt } });
-        io.to(`match:${matchId}`).emit('messages_read', {
+        const receipt = {
           matchId,
           readerId: socket.userId,
           messageIds: messageIds.map((id) => id.toString()),
           readAt,
-        });
+        };
+        io.to(`match:${matchId}`).emit('messages_read', receipt);
+        const senderIds = [...new Set(unreadMessages.map((message) => message.sender.toString()))];
+        senderIds.forEach((senderId) => io.to(`user:${senderId}`).emit('messages_read', receipt));
+        io.to(`user:${socket.userId}`).emit('chat_unread_changed');
       } catch (err) {
         logger.error(`mark_read error: ${err.message}`);
       }

@@ -3,6 +3,7 @@ const Swipe = require('../models/Swipe');
 const Match = require('../models/Match');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
+const Message = require('../models/Message');
 
 const DATING_GENDER_FILTERS = {
   Male: ['Female'],
@@ -350,8 +351,22 @@ exports.getMatches = async (req, res, next) => {
       .limit(limitNum)
       .lean();
 
+    const matchIds = matches.map((match) => match._id);
+    const unreadByMatch = matchIds.length ? await Message.aggregate([
+      {
+        $match: {
+          match: { $in: matchIds },
+          sender: { $ne: req.user._id },
+          readAt: null,
+        },
+      },
+      { $group: { _id: '$match', count: { $sum: 1 } } },
+    ]) : [];
+    const unreadCounts = new Map(unreadByMatch.map((item) => [item._id.toString(), item.count]));
+
     // Strip anonymous data for non-self users
     const sanitised = matches.map((m) => {
+      m.unreadCount = unreadCounts.get(m._id.toString()) || 0;
       m.users = m.users.map((u) => {
         if (u._id.toString() !== req.user._id.toString() && u.anonymousMode) {
           // Matched users can see each other even in anonymous mode

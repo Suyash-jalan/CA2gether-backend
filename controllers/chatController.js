@@ -7,6 +7,20 @@ const { getRandomIcebreakers } = require('../utils/icebreakerPrompts');
 const { cloudinary, configureCloudinary } = require('../config/cloudinary');
 const fs = require('fs');
 
+exports.getUnreadCount = async (req, res, next) => {
+  try {
+    const matchIds = await Match.distinct('_id', { users: req.user._id, isActive: true });
+    const count = matchIds.length ? await Message.countDocuments({
+      match: { $in: matchIds },
+      sender: { $ne: req.user._id },
+      readAt: null,
+    }) : 0;
+    res.json({ success: true, count });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // ── GET CHAT HISTORY (paginated) ────────────────────────────────────
 exports.getChatHistory = async (req, res, next) => {
   try {
@@ -26,18 +40,23 @@ exports.getChatHistory = async (req, res, next) => {
       match: matchId,
       sender: { $ne: req.user._id },
       readAt: null,
-    }).select('_id').lean();
+    }).select('_id sender').lean();
 
     if (unreadMessages.length) {
       const readAt = new Date();
       const messageIds = unreadMessages.map((message) => message._id);
       await Message.updateMany({ _id: { $in: messageIds } }, { $set: { readAt } });
-      req.app.get('io')?.to(`match:${matchId}`).emit('messages_read', {
+      const receipt = {
         matchId,
         readerId: req.user._id.toString(),
         messageIds: messageIds.map((id) => id.toString()),
         readAt,
-      });
+      };
+      const io = req.app.get('io');
+      io?.to(`match:${matchId}`).emit('messages_read', receipt);
+      const senderIds = [...new Set(unreadMessages.map((message) => message.sender.toString()))];
+      senderIds.forEach((senderId) => io?.to(`user:${senderId}`).emit('messages_read', receipt));
+      io?.to(`user:${req.user._id}`).emit('chat_unread_changed');
     }
 
     const total = await Message.countDocuments({ match: matchId });
@@ -112,6 +131,7 @@ exports.sendImageMessage = async (req, res, next) => {
 
     const io = req.app.get('io');
     io?.to(`match:${matchId}`).emit('new_message', payload);
+    io?.to(`user:${otherUserId}`).emit('chat_unread_changed');
 
     const recipient = await User.findById(otherUserId).select('notificationPreferences').lean();
     if (recipient?.notificationPreferences?.messages !== false) {
