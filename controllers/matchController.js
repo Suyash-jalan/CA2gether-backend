@@ -163,17 +163,23 @@ exports.getPassedProfiles = async (req, res, next) => {
     const limitNum = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 50);
     const skip = (pageNum - 1) * limitNum;
     const blockedIds = req.blockedUserIds || [];
-    const filter = { swiper: req.user._id, action: 'pass' };
+    // Filter invalid/deleted accounts before paginating. Otherwise a page full
+    // of orphaned swipe records is populated as null and the UI appears empty.
+    const eligibleUserIds = await User.distinct('_id', {
+      accountStatus: 'active',
+      _id: { $nin: blockedIds },
+    });
+    const filter = {
+      swiper: req.user._id,
+      swiped: { $in: eligibleUserIds },
+      action: 'pass',
+    };
     if (mode) filter.mode = mode;
 
     const [total, passes] = await Promise.all([
       Swipe.countDocuments(filter),
       Swipe.find(filter)
-        .populate({
-          path: 'swiped',
-          match: { accountStatus: 'active', _id: { $nin: blockedIds } },
-          select: 'name age gender city bio photos caStatus specialization firmName firmType workLifeTag anonymousMode',
-        })
+        .populate('swiped', 'name age gender city bio photos caStatus specialization firmName firmType workLifeTag anonymousMode')
         .sort({ updatedAt: -1 })
         .skip(skip)
         .limit(limitNum)
