@@ -11,6 +11,23 @@ const DATING_GENDER_FILTERS = {
   'Non-binary': ['Non-binary', 'Female'],
 };
 
+const PASSED_PROFILE_RETENTION_MS = 48 * 60 * 60 * 1000;
+const getPassExpiry = () => new Date(Date.now() + PASSED_PROFILE_RETENTION_MS);
+const getLegacyPassCutoff = () => new Date(Date.now() - PASSED_PROFILE_RETENTION_MS);
+
+const removeExpiredPasses = (swiper, mode) => {
+  const filter = {
+    swiper,
+    action: 'pass',
+    $or: [
+      { expiresAt: { $lte: new Date() } },
+      { expiresAt: { $exists: false }, updatedAt: { $lte: getLegacyPassCutoff() } },
+    ],
+  };
+  if (mode) filter.mode = mode;
+  return Swipe.deleteMany(filter);
+};
+
 // ── SWIPE (like / pass) ─────────────────────────────────────────────
 exports.swipe = async (req, res, next) => {
   try {
@@ -47,9 +64,18 @@ exports.swipe = async (req, res, next) => {
     }
 
     // Upsert the swipe (in case they re-swipe)
+    const swipeUpdate = {
+      $set: {
+        action,
+        mode: swipeMode,
+        ...(action === 'pass' ? { expiresAt: getPassExpiry() } : {}),
+      },
+    };
+    if (action !== 'pass') swipeUpdate.$unset = { expiresAt: 1 };
+
     await Swipe.findOneAndUpdate(
       { swiper: swiperId, swiped: targetUserId, mode: swipeMode },
-      { action, mode: swipeMode },
+      swipeUpdate,
       { upsert: true, new: true }
     );
 
@@ -143,6 +169,8 @@ exports.getIncomingLikes = async (req, res, next) => {
     const { mode = 'dating' } = req.query;
     const blockedIds = req.blockedUserIds || [];
 
+    await removeExpiredPasses(req.user._id, mode);
+
     const likes = await Swipe.find({
       swiped: req.user._id,
       action: 'like',
@@ -187,6 +215,7 @@ exports.getPassedProfiles = async (req, res, next) => {
     const limitNum = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 50);
     const skip = (pageNum - 1) * limitNum;
     const blockedIds = req.blockedUserIds || [];
+    await removeExpiredPasses(req.user._id, mode);
     // Filter invalid/deleted accounts before paginating. Otherwise a page full
     // of orphaned swipe records is populated as null and the UI appears empty.
     const eligibleUserIds = await User.distinct('_id', {
@@ -216,6 +245,7 @@ exports.getPassedProfiles = async (req, res, next) => {
         _id: pass._id,
         mode: pass.mode,
         passedAt: pass.updatedAt,
+        expiresAt: pass.expiresAt || new Date(new Date(pass.updatedAt).getTime() + PASSED_PROFILE_RETENTION_MS),
         user: pass.swiped.anonymousMode
           ? { ...pass.swiped, name: 'Anonymous CA', photos: [] }
           : pass.swiped,
@@ -270,11 +300,14 @@ exports.discover = async (req, res, next) => {
     const skip = (pageNum - 1) * limitNum;
 
     const isExamBuddyMode = examBuddyMode === 'true';
+    const swipeMode = isExamBuddyMode ? 'exam_buddy' : 'dating';
+
+    await removeExpiredPasses(userId, swipeMode);
 
     // Fetch only the IDs needed by the exclusion filter.
     const alreadySwiped = await Swipe.distinct('swiped', {
       swiper: userId,
-      mode: isExamBuddyMode ? 'exam_buddy' : 'dating',
+      mode: swipeMode,
     });
 
     // Build exclusion list

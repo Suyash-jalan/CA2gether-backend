@@ -22,6 +22,10 @@ const swipeSchema = new mongoose.Schema(
       enum: ['dating', 'exam_buddy'],
       default: 'dating',
     },
+    expiresAt: {
+      type: Date,
+      default: undefined,
+    },
   },
   {
     timestamps: true,
@@ -30,5 +34,9 @@ const swipeSchema = new mongoose.Schema(
 
 // Each user can only swipe on another user once per mode
 swipeSchema.index({ swiper: 1, swiped: 1, mode: 1 }, { unique: true });
+
+// MongoDB removes expired pass records in the background. Application queries
+// also enforce the expiry immediately because TTL cleanup can run slightly late.
+swipeSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
 module.exports = mongoose.model('Swipe', swipeSchema);
